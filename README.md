@@ -33,6 +33,9 @@ Choisir ce projet, c'est aussi choisir de **soutenir une agriculture locale et b
 
 > ⚠️ Les données sont privées et ne sont pas versionnées dans ce dépôt.
 
+BaseDeDonnes
+![Base De Donnes](BaseDeDonnees.PNG)
+
 La base de données contient deux tables principales :
 
 ### `produit_vendu`
