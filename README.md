@@ -14,7 +14,9 @@ Choisir ce projet, c'est aussi choisir de **soutenir une agriculture locale et b
 
 ## 🎯 Objectif
 
-Construire un ou plusieurs modèles de **séries temporelles supervisés** capables de prédire les quantités hebdomadaires vendues pour chaque produit.
+1- Analyser l'historique des commandes depuis 2016 afin d'identifier les produits les plus rentables, la saisonnalité des ventes et d'élaborer un modèle prédictif pour optimiser les stocks
+
+2-Construire un ou plusieurs modèles de **séries temporelles supervisés** capables de prédire les quantités hebdomadaires vendues pour chaque produit.
 
 | Paramètre | Valeur |
 |---|---|
@@ -31,6 +33,9 @@ Construire un ou plusieurs modèles de **séries temporelles supervisés** capab
 
 > ⚠️ Les données sont privées et ne sont pas versionnées dans ce dépôt.
 
+BaseDeDonnes
+![Base De Donnes](BaseDeDonnees.PNG)
+
 La base de données contient deux tables principales :
 
 ### `produit_vendu`
@@ -46,6 +51,10 @@ Lignes de ventes détaillées par commande et par produit.
 | `price` | Prix unitaire (€) |
 | `weight` | Poids unitaire (g) |
 
+nid (Node ID) : L'identifiant unique du "contenu". C'est votre clé primaire pour un produit. Si vous avez 500 produits, chaque produit a un nid différent. Utilisez ceci pour toutes vos jointures.
+
+vid (Version ID) : L'identifiant de la version. Chaque fois qu'une ligne est modifiée, un nouveau vid peut être créé. Pour l'analyse de données, on ignore généralement le vid pour se concentrer sur l'état actuel du produit via le nid.
+
 ### `orders`
 Historique des commandes clients.
 
@@ -59,11 +68,21 @@ Historique des commandes clients.
 | `created` | Date de création |
 | `modified` | Date de dernière modification |
 
+uid (User ID) : L'identifiant de l'utilisateur. Il relie vos commandes à des profils clients.
+
 **Volume de données :**
 - ~142 600 lignes de ventes produit
 - ~21 900 commandes
 - Historique de **plus de 10 ans** (2013 – 2025)
 - **300+ produits** référencés
+
+Le projet repose sur 4 tables principales :
+- **Orders (`order.csv`)** : Liste des transactions globales.
+- **Order Products (`order_products.csv`)** : Table de détail (contient les articles par commande).
+- **Products (`uc_products.csv`)** : Catalogue technique (prix, poids).
+- **Nodes (`node.csv`)** : Référentiel des contenus (titres des produits).
+
+*Le lien pivot entre les tables est le champ `nid`.*
 
 ---
 
@@ -79,9 +98,17 @@ Historique des commandes clients.
 ## 🔬 Approche Technique
 
 ### 1. Exploration & Nettoyage
+
+Analyse en cours
+- [ ] Nettoyage des données (traitement des anomalies 2020/2021).
+- [ ] Création de la table consolidée `df_full`.
+- [ ] Visualisation du Top 10 CA par produit.
+- [ ] Modélisation prédictive.
+
 - Analyse des séries temporelles par produit
 - Détection des anomalies et valeurs aberrantes
 - Gestion des valeurs manquantes et des semaines sans ventes
+
 
 ### 2. Un Modèle par Légume/Fruit
 Chaque produit ayant ses propres cycles saisonniers, un **modèle dédié** est entraîné par produit pour garantir une précision maximale par rapport à un modèle global.

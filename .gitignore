@@ -2,15 +2,15 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.python-version
 
 # C extensions
 *.so
 
 # data
 *.csv
-data/
-
-.python-version
+raw_data
+data
 
 # Distribution / packaging
 .Python
