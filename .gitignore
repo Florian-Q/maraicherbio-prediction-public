@@ -9,8 +9,9 @@ __pycache__/
 
 # data
 *.csv
-raw_data
 data
+*_ignore*
+moi/
 
 # Distribution / packaging
 .Python
@@ -131,6 +132,8 @@ ipython_config.py
 #   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
 #   in the .venv directory. It is recommended not to include this directory in version control.
 .pixi
+
+moi/
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
