@@ -37,8 +37,8 @@ st.set_page_config(
 
 _DATA_REAL_AVAILABLE = False
 try:
-    import utils
-    import utils_series
+    import main.utils as utils
+    import main.utils_series as utils_series
     if (NOTEBOOKS_DIR.parent / "data" / "uc_order_products.csv").exists():
         _DATA_REAL_AVAILABLE = True
 except Exception:
