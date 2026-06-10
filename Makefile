@@ -27,13 +27,6 @@ run:  ## Lance le dashboard Streamlit
 train:  ## Exécute le pipeline d'entraînement et exporte les prédictions
 	$(PYTHON) main/global_process.py
 
-# ── Docker ─────────────────────────────────────────────────────────────────────
-docker-build:  ## Construit l'image Docker
-	docker build -t $(IMAGE):$(TAG) .
-
-docker-run:  ## Lance le conteneur Docker (dashboard sur le port 8501)
-	docker run -p $(PORT):8501 -v $(PWD)/data:/app/data $(IMAGE):$(TAG)
-
 # ── Nettoyage ──────────────────────────────────────────────────────────────────
 clean:  ## Supprime les fichiers temporaires et caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
