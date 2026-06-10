@@ -18,13 +18,6 @@ def _to_prophet_df(series: pd.Series) -> pd.DataFrame:
         [["ds", "y"]]
     )
 
-def _build_features(series: pd.Series) -> pd.DataFrame:
-    """Features : semaine ISO + lag_1."""
-    df = pd.DataFrame({"y": series}, index=series.index)
-    df["week"]  = df.index.isocalendar().week.astype(int)
-    df["lag_1"] = df["y"].shift(1)
-    return df
-
 def _make_future_index(last_date: pd.Timestamp, n_weeks: int = 52) -> pd.DatetimeIndex:
     """Génère n_weeks dates hebdomadaires après last_date."""
     return pd.date_range(start=last_date + pd.Timedelta(weeks=1),
