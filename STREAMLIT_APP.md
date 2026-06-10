@@ -4,22 +4,24 @@
 
 ```
 app.py
-├── 1. Configuration de la page (wide, sidebar expanded)
+├── 1. Configuration de la page (wide, sidebar collapsed)
 ├── 2. Chargement des données
 │   ├── Données réelles : utils.charger_dataframe() + uc_products.csv
-│   └── Données démo   : _generate_demo_data() (12 produits fictifs)
-├── 3. Moteur de prédiction
+│   ├── Métriques        : model_win_metric.csv (meilleur modèle + MAE/MAPE par produit)
+│   └── Prédictions      : Predictions.csv (52 semaines, export de Global_process.ipynb)
+├── 3. Moteur de prédiction (fallback)
 │   ├── train_baseline_model()     → moyenne + écart-type par semaine ISO
 │   └── generate_forecast()        → 52 semaines de prévisions + IC 95%
+│   (utilisé UNIQUEMENT si Predictions.csv est absent)
 ├── 4. Préparation des données
-│   └── prepare_product_data()     → agrège, entraîne, produit df_forecast + df_summary
+│   └── prepare_all_data()         → charge, joint, agrège en une fois (@st.cache_data)
 ├── 5. Graphiques Plotly
-│   ├── plot_history_forecast()    → courbe historique (noir) + prévisions (rouge) + IC
-│   └── plot_top10_bar()           → barres horizontales top 10
-├── 6. Composants Streamlit
-│   ├── render_kpi_row()           → 5 métriques clés (Qté prévue, CA, Impact prix...)
-│   ├── render_product_card()      → fiche produit (MAE, MAPE, prix, unité)
-│   └── render_price_simulator()   → number_input prix + bouton reset
+│   └── plot_view()                → courbes individuelles (≤4 produits) ou cumulative (5+)
+├── 6. Interface Streamlit
+│   ├── Tableau éditable    → prix modifiables, checkboxes de sélection, recherche
+│   ├── Graphique principal → historique + prévisions + IC 95%
+│   ├── KPIs                → Qté prévue, CA prévisionnel, nombre de produits
+│   └── Reset prix          → boutons de réinitialisation par produit
 └── 7. Application principale (main)
 ```
 
@@ -30,47 +32,84 @@ app.py
 | Composant | Détail |
 |---|---|
 | **Source réelle** | `utils.charger_dataframe()` → `uc_order_products.csv` + `uc_orders.csv` + `uc_products.csv` |
-| **Source démo** | 12 produits fictifs avec saisonnalité été/hiver (si CSV indisponibles) |
-| **Dates** | Du 1er dimanche 2021 au 31 mai 2026 |
+| **Prédictions** | `Predictions.csv` généré par `Global_process.ipynb` → 52 semaines × 84 produits |
+| **Métriques modèles** | `model_win_metric.csv` : meilleur modèle (Baseline/Prophet/XGBoost) + MAE/MAPE par produit |
+| **Prix** | `uc_products.csv` → mapping `model → sell_price` |
+| **Dates** | Du 1er dimanche 2014 au 31 mai 2026 |
 | **Fréquence** | Hebdomadaire (`W-SUN`) |
 
 ---
 
-## Modèle de prédiction
+## Modèles de prédiction
 
-**Baseline : moyenne par semaine ISO.**
+La source principale de prédictions est `Predictions.csv`, exporté par `notebooks/Global_process.ipynb`.
+
+### Pipeline d'entraînement (Global_process.ipynb)
 
 Pour chaque produit :
-1. Les ventes sont agrégées par semaine (somme des quantités)
-2. On calcule la moyenne et l'écart-type pour chaque semaine calendaire (1→53)
-3. Les 52 semaines futures sont prédites en appliquant la moyenne de la semaine correspondante
-4. L'intervalle de confiance à 95% = moyenne ± 1.96 × écart-type
+1. Agrégation hebdomadaire des ventes (`complete_weekly_dataframe`)
+2. Split train/test adaptatif (20% de test, arrondi à l'année)
+3. Grid search sur 3 modèles :
+   - **Baseline** : moyenne par semaine ISO
+   - **Prophet** : saisonnalité additive, `seasonality_prior_scale` ∈ [3, 10]
+   - **XGBoost** : features `[week, week_sin, week_cos, lag_1, lag_52, rolling_52]`, grid 2×2×2
+4. Sélection du meilleur modèle par MAPE minimale (en saison)
+5. Prédictions 52 semaines avec le modèle gagnant
+6. Export → `Predictions.csv` + `model_win_metric.csv`
+
+### Résultats
+
+| Modèle gagnant | Produits | % |
+|---|---|---|
+| **XGBoost** | 52 | 62% |
+| **Prophet** | 22 | 26% |
+| **Baseline** | 10 | 12% |
+
+### Fallback Baseline (dans app.py)
+
+Si `Predictions.csv` est absent, l'app utilise un fallback baseline (moyenne par semaine ISO + IC 95%). Ce fallback est intentionnellement simple — les vraies prédictions viennent du notebook.
 
 ---
 
 ## Interface utilisateur
 
-### Sidebar (gauche)
+### Tableau principal (droite)
+
+| Colonne | Rôle |
+|---|---|
+| **✅ Sél.** | Checkbox pour afficher le produit dans le graphique |
+| **Produit** | Nom du produit (recherche textuelle) |
+| **Unité** | kg, Pièce, Botte (depuis `weight_units`) |
+| **Prix (€)** | Éditable — modifie le CA en temps réel |
+| **Modèle** | Baseline / Prophet / XGBoost (meilleur modèle) |
+| **MAE in** | Mean Absolute Error en saison |
+| **MAPE** | Mean Absolute Percentage Error en saison |
+
+### Filtres
 
 | Widget | Options | Rôle |
 |---|---|---|
-| **Produit** | `selectbox` avec recherche | Choisir le produit à afficher |
-| **Période** | Futur / 1 an / 2 ans / 3 ans / Complet | Zoomer sur l'historique |
-| **Métrique** | Quantité vendue / CA (€) | Basculer l'axe Y du graphique |
-| **Classement** | Top CA / Volume / Croissance / Part CA | Choisir le graphique portefeuille |
+| **Période** | Futur / 1 an / 2 ans / 3 ans / Tout | Zoom temporel |
+| **Métrique** | Quantité / Chiffre d'affaires (€) | Basculer l'axe Y |
+| **Recherche** | Texte libre | Filtrer les produits |
+| **✅ Tous** | Bouton | Sélectionner tous les produits |
+| **🔄 Aucun** | Bouton | Désélectionner tous les produits |
 
-### Zone principale (2 colonnes)
+### Graphique (gauche)
 
-**Colonne gauche (3/4) :**
-- Graphique Plotly : historique (noir) + prévisions (rouge) + bande d'incertitude (rose)
-- Ligne verticale « Aujourd'hui » à la jonction historique/prévisions
-- 5 KPI cards : Qté prévue, CA prévisionnel, Impact prix, Prix actuel, Prix simulé
-- 2 graphiques portefeuille (top 10 selon classement + part du CA total)
+- **1 à 4 produits** : courbes individuelles de couleurs différentes (historique = trait plein, prévisions = pointillés)
+- **5+ produits** : courbe cumulative unique (historique = noir, prévisions = rouge + IC 95% rose)
+- Ligne verticale à la dernière date connue
+- Mode CA = toutes les valeurs × prix (réel ou modifié)
+- Hover unifié avec tooltips
 
-**Colonne droite (1/4) :**
-- Fiche produit (nom, unité, modèle, MAE, MAPE, prix)
-- Simulateur de prix (`number_input` + bouton reset → `sell_price` du produit)
-- Résumé 52 semaines (Qté totale, moyenne/semaine, pic, CA, nb semaines sans vente)
+### KPIs
+
+| KPI | Description |
+|---|---|
+| 📦 Qté prévue | Somme des prédictions sur 52 semaines |
+| 💰 CA prévisionnel | Somme (prédiction × prix), avec delta si prix modifiés |
+| 🧺 Produits | Nombre de produits sélectionnés |
 
 ---
 
@@ -78,26 +117,22 @@ Pour chaque produit :
 
 | Élément | Comportement |
 |---|---|
-| **Prix saisi** | Mis à jour en temps réel dans le graphique (si mode CA) et les KPI |
-| **Bouton Reset** | Réinitialise le prix au `sell_price` du produit (depuis `uc_products.csv`) |
-| **Plage** | 0.01 € → 5× le prix de base |
-| **Pas** | 0.01 € (centime) |
-| **Impact** | Affiche le delta de CA en € et % par rapport au prix de base |
+| **Prix saisi** | Modifie le CA en temps réel (graphique + KPIs) |
+| **Bouton Reset** | Réinitialise au `sell_price` d'origine |
+| **Plage** | 0.01 € → pas de limite supérieure |
+| **Pas** | 0.05 € |
+| **Impact** | Delta de CA en € par rapport au prix de base |
 
 ---
 
 ## Graphiques Plotly
 
 ### Historique & Prévisions
-- **Courbe noire** = ventes réelles hebdomadaires
-- **Courbe rouge** = prévisions baseline (52 semaines)
-- **Bande rose** = intervalle de confiance à 95%
-- **Ligne grise verticale** = dernière date connue
+- **Courbes colorées** = produits individuels (1-4) ou tout cumulé (5+)
+- **Trait plein** = historique réel
+- **Pointillés** = prévisions
+- **Bande rose** = intervalle de confiance à 95% (mode cumulatif uniquement)
 - **Mode CA** = toutes les valeurs × prix (réel ou simulé)
-
-### Portefeuille (2 graphiques côte à côte)
-- **Gauche** = top 10 selon le classement choisi (barres horizontales)
-- **Droite** = part en % de chaque produit dans le CA prévisionnel total
 
 ---
 
@@ -105,9 +140,10 @@ Pour chaque produit :
 
 | Tu veux... | Fichier/modifier |
 |---|---|
-| Changer le modèle de prédiction | `train_baseline_model()` et `generate_forecast()` dans `app.py` |
-| Ajouter/supprimer des filtres | Section 7 (`main()`), bloc `st.sidebar` |
-| Modifier l'apparence des graphiques | Fonctions `plot_history_forecast()` et `plot_top10_bar()` |
-| Changer le simulateur de prix | `render_price_simulator()` |
-| Utiliser un autre modèle (XGBoost, etc.) | Importer depuis `moi/Baseline/` + remplacer le moteur de prédiction |
-| Connecter aux vrais résultats de modélisation | Remplacer `_generate_demo_data()` par le chargement des CSV de résultats |
+| Changer le modèle de prédiction | Modifier `Global_process.ipynb` + réexporter `Predictions.csv` |
+| Ajouter un nouveau modèle | Ajouter la fonction dans `model_3.py` + l'intégrer dans `Global_process.ipynb` |
+| Ajouter/supprimer des filtres | Section `main()` dans `app.py`, bloc colonne tableau |
+| Modifier l'apparence des graphiques | Fonction `plot_view()` dans `app.py` |
+| Changer le simulateur de prix | Colonne `Prix (€)` dans le `data_editor` |
+| Ajouter des KPIs | Bloc KPIs dans `main()` |
+| Régénérer les prédictions | `make train` ou exécuter `Global_process.ipynb` |
