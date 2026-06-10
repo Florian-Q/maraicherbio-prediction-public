@@ -201,9 +201,15 @@ def _build_features_xg(series: pd.Series) -> pd.DataFrame:
     # rolling mean annuel (min_periods=26 : accepte dès 6 mois de données)
     df["rolling_52"] = df["y"].shift(1).rolling(window=52, min_periods=26).mean()
 
+    # moyenne historique par semaine ISO — ancre déterministe anti-dérive
+    # En prédiction, cette feature reste stable (calculée sur l'historique réel,
+    # pas sur les valeurs prédites), ce qui empêche le modèle d'accumuler
+    # des prédictions gonflées dans les semaines creuses.
+    df["week_mean"] = df.groupby(df.index.isocalendar().week)["y"].transform("mean")
+
     return df
 
-FEATURES = ["week", "week_sin", "week_cos", "lag_1", "lag_52", "rolling_52"]
+FEATURES = ["week", "week_sin", "week_cos", "lag_1", "lag_52", "rolling_52", "week_mean"]
 
 
 def _make_future_index(last_date: pd.Timestamp, n_weeks: int = 52) -> pd.DatetimeIndex:

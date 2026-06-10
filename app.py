@@ -332,6 +332,8 @@ def main():
         st.session_state.edited_prices = {}
     if "checked_products" not in st.session_state:
         st.session_state.checked_products = []
+    if "_editor_version" not in st.session_state:
+        st.session_state._editor_version = 0
 
     # --- Layout 50/50 ---
     col_graph, col_table = st.columns([1, 1], gap="medium")
@@ -366,12 +368,14 @@ def main():
         with sr2:
             if st.button("✅ Tous", use_container_width=True):
                 st.session_state.checked_products = list(products_list)
-                st.session_state.pop("product_editor", None)  # reset editor state
+                st.session_state.pop("editor_base", None)
+                st.session_state._editor_version += 1
                 st.rerun()
         with sr3:
             if st.button("🔄 Aucun", use_container_width=True):
                 st.session_state.checked_products = []
-                st.session_state.pop("product_editor", None)
+                st.session_state.pop("editor_base", None)
+                st.session_state._editor_version += 1
                 st.rerun()
 
         # Filtrer par recherche (clear editor si le filtre change)
@@ -379,26 +383,34 @@ def main():
             st.session_state.last_search = ""
         if search.strip() != st.session_state.last_search:
             st.session_state.last_search = search.strip()
-            st.session_state.pop("product_editor", None)
+            st.session_state.pop("editor_base", None)
+            st.session_state._editor_version += 1
 
         df_table = table_data.copy()
         if search.strip():
             df_table = df_table[df_table["produit"].str.contains(search.strip(), case=False)]
 
-        # Construire le DataFrame éditable
-        df_edit = df_table[["produit", "weight_units", "sell_price", "best_model", "MAE_in", "MAPE"]].copy()
-        df_edit = df_edit.rename(columns={"sell_price": "Prix (€)"})
-        df_edit["✅"] = df_table["produit"].isin(st.session_state.checked_products)
+        # ── Construire l'état initial du tableau éditable ──
+        # IMPORTANT : on ne repasse ce DataFrame au data_editor qu'au premier
+        # rendu ou quand le filtre change.  Ensuite, le widget gère son état
+        # interne via key="product_editor", et on lit juste le retour `edited`.
+        # Si on repasse un df modifié à chaque rerun, Streamlit l'interprète
+        # comme une « correction » et écrase l'état interne du widget → flicker.
+        filter_key = search.strip()
+        if "editor_base" not in st.session_state or st.session_state.get("_editor_filter") != filter_key:
+            df_edit = df_table[
+                ["produit", "weight_units", "sell_price", "best_model", "MAE_in", "MAPE"]
+            ].copy()
+            df_edit = df_edit.rename(columns={"sell_price": "Prix (€)"})
 
-        # Appliquer les prix modifiés (depuis session_state)
-        for prod, p in st.session_state.edited_prices.items():
-            mask = df_edit["produit"] == prod
-            df_edit.loc[mask, "Prix (€)"] = p
+            for prod, p in st.session_state.edited_prices.items():
+                mask = df_edit["produit"] == prod
+                df_edit.loc[mask, "Prix (€)"] = p
 
-        # Appliquer les checkboxes (depuis session_state)
-        for prod in st.session_state.checked_products:
-            mask = df_edit["produit"] == prod
-            df_edit.loc[mask, "✅"] = True
+            df_edit["✅"] = df_edit["produit"].isin(st.session_state.checked_products)
+
+            st.session_state.editor_base = df_edit
+            st.session_state._editor_filter = filter_key
 
         column_config = {
             "produit": st.column_config.TextColumn("Produit", disabled=True),
@@ -412,28 +424,31 @@ def main():
             "✅": st.column_config.CheckboxColumn("Sél.", width="small"),
         }
 
+        # Clé dynamique : change quand l'utilisateur clique Tous/Aucun ou change
+        # le filtre → force un widget vierge, sans état résiduel côté frontend.
+        editor_key = f"product_editor_v{st.session_state._editor_version}"
+
         edited = st.data_editor(
-            df_edit,
+            st.session_state.editor_base,
             column_config=column_config,
             use_container_width=True,
             hide_index=True,
             height=500,
-            key="product_editor",
+            key=editor_key,
         )
 
-        # Extraire prix modifiés et checkboxes depuis l'état du widget
+        # Lecture seule : on extrait l'état, sans le repasser au prochain run
         if edited is not None:
+            st.session_state.checked_products = edited[edited["✅"]]["produit"].tolist()
+
             for _, row in edited.iterrows():
                 produit = row["produit"]
                 new_price = row["Prix (€)"]
-                original = df_table[df_table["produit"] == produit]["sell_price"].values
-                if len(original) > 0:
-                    orig_price = float(original[0])
-                    if abs(new_price - orig_price) > 0.001:
-                        st.session_state.edited_prices[produit] = new_price
-                    elif produit in st.session_state.edited_prices:
-                        del st.session_state.edited_prices[produit]
-            st.session_state.checked_products = edited[edited["✅"]]["produit"].tolist()
+                orig = float(df_table[df_table["produit"] == produit]["sell_price"].values[0])
+                if abs(new_price - orig) > 0.001:
+                    st.session_state.edited_prices[produit] = new_price
+                elif produit in st.session_state.edited_prices:
+                    del st.session_state.edited_prices[produit]
 
         # --- Boutons Reset ---
         modified = dict(sorted(st.session_state.edited_prices.items()))
@@ -446,6 +461,8 @@ def main():
                 with cols[i % 4]:
                     if st.button(f"↩ {prod} ({p:.2f}→{orig:.2f})", key=f"rst_{prod}"):
                         del st.session_state.edited_prices[prod]
+                        st.session_state.pop("editor_base", None)
+                        st.session_state._editor_version += 1
                         st.rerun()
 
     # ===================== COLONNE GAUCHE : Graphique =====================
