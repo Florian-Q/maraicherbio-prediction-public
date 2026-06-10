@@ -14,9 +14,8 @@ Choisir ce projet, c'est aussi choisir de **soutenir une agriculture locale et b
 
 ## 🎯 Objectif
 
-1- Analyser l'historique des commandes depuis 2016 afin d'identifier les produits les plus rentables, la saisonnalité des ventes et d'élaborer un modèle prédictif pour optimiser les stocks
-
-2-Construire un ou plusieurs modèles de **séries temporelles supervisés** capables de prédire les quantités hebdomadaires vendues pour chaque produit.
+1. Analyser l'historique des commandes depuis 2014 afin d'identifier les produits les plus rentables, la saisonnalité des ventes et élaborer un modèle prédictif pour optimiser les stocks.
+2. Construire un ou plusieurs modèles de **séries temporelles supervisés** capables de prédire les quantités hebdomadaires vendues pour chaque produit.
 
 | Paramètre | Valeur |
 |---|---|
@@ -24,8 +23,8 @@ Choisir ce projet, c'est aussi choisir de **soutenir une agriculture locale et b
 | **Variable X** | Quantités de légumes/fruits vendues par semaine |
 | **Variable Y** | Prédiction des quantités futures |
 | **Type de valeur** | Values (continue) |
-| **ML Approach** | Time Series — Modèle **Prophet** (Meta) |
-| **Exploration & Viz** | Matplotlib · Plotly · Dashboard interactif |
+| **ML Approach** | Time Series — Baseline · Prophet (Meta) · XGBoost |
+| **Exploration & Viz** | Matplotlib · Plotly · Dashboard Streamlit |
 
 ---
 
@@ -73,14 +72,13 @@ uid (User ID) : L'identifiant de l'utilisateur. Il relie vos commandes à des pr
 **Volume de données :**
 - ~142 600 lignes de ventes produit
 - ~21 900 commandes
-- Historique de **plus de 10 ans** (2013 – 2025)
-- **300+ produits** référencés
+- Historique de **plus de 10 ans** (2014 – 2026)
+- **84 produits** retenus après nettoyage (présents sur les 3 dernières années avec continuité + >10 ventes)
 
-Le projet repose sur 4 tables principales :
-- **Orders (`order.csv`)** : Liste des transactions globales.
-- **Order Products (`order_products.csv`)** : Table de détail (contient les articles par commande).
-- **Products (`uc_products.csv`)** : Catalogue technique (prix, poids).
-- **Nodes (`node.csv`)** : Référentiel des contenus (titres des produits).
+Le projet repose sur 3 fichiers sources :
+- **Orders (`uc_orders.csv`)** : Liste des transactions globales.
+- **Order Products (`uc_order_products.csv`)** : Table de détail (contient les articles par commande).
+- **Products (`uc_products.csv`)** : Catalogue technique (prix, poids, unités).
 
 *Le lien pivot entre les tables est le champ `nid`.*
 
@@ -99,51 +97,64 @@ Le projet repose sur 4 tables principales :
 
 ### 1. Exploration & Nettoyage
 
-Analyse en cours
-- [ ] Nettoyage des données (traitement des anomalies 2020/2021).
-- [ ] Création de la table consolidée `df_full`.
-- [ ] Visualisation du Top 10 CA par produit.
-- [ ] Modélisation prédictive.
-
 - Analyse des séries temporelles par produit
 - Détection des anomalies et valeurs aberrantes
 - Gestion des valeurs manquantes et des semaines sans ventes
-
+- 84 produits conservés après filtrage (présence sur 3 ans glissants, >10 ventes)
+- Correction des poids mal annotés (grammes → kilogrammes)
+- Uniformisation des noms de produits
 
 ### 2. Un Modèle par Légume/Fruit
+
 Chaque produit ayant ses propres cycles saisonniers, un **modèle dédié** est entraîné par produit pour garantir une précision maximale par rapport à un modèle global.
 
-### 3. Modèle Prophet (Meta)
-[Prophet](https://facebook.github.io/prophet/) est particulièrement adapté à ce cas d'usage :
-- Conçu pour les séries avec **forte saisonnalité** (hebdomadaire, annuelle)
-- Robuste aux **données manquantes** et aux valeurs aberrantes
-- Intègre les **jours fériés** et événements ponctuels
-- Interprétable et facilement ajustable
+### 3. Trois Modèles en Compétition
+
+| Modèle | Type | Caractéristiques |
+|---|---|---|
+| **Baseline** | Moyenne hebdomadaire | Moyenne + écart-type par semaine ISO (référence) |
+| **Prophet** (Meta) | Time Series bayésien | Saisonnalité annuelle + hebdo, robuste aux zéros |
+| **XGBoost** | Gradient boosting | Features : semaine ISO + lags + rolling mean (52 sem.) |
+
+- **XGBoost** gagne sur **52 produits** sur 84 (62%)
+- **Prophet** gagne sur **22 produits** (26%)
+- **Baseline** gagne sur **10 produits** (12%)
+
+Le meilleur modèle est sélectionné par **MAPE minimale** (calculée uniquement sur les semaines en saison, y_true > 0).
 
 ### 4. Évaluation
-- **MAE** — Mean Absolute Error
-- **RMSE** — Root Mean Square Error
-- **MAPE** — Mean Absolute Percentage Error
-- **Cross-validation temporelle** (walk-forward validation)
+
+- **MAE_in** — Mean Absolute Error (en saison, y > 0)
+- **MAE_out** — Mean Absolute Error (hors saison, y = 0)
+- **MAPE** — Mean Absolute Percentage Error (en saison uniquement)
+- **sMAPE_all** — Symmetric MAPE (toutes les semaines, incluant les zéros)
+- **Cross-validation temporelle** — split adaptatif : 20% de test arrondi à l'année la plus proche (1 à 3 ans)
 
 ---
 
 ## 🗺️ Roadmap
 
 ```
-Phase 1 — Modèles Time Series        [En cours]
+Phase 1 — Modèles Time Series        [✅ Terminé]
   ├── Nettoyage & feature engineering
-  ├── Modèle Prophet par produit
-  ├── Validation croisée temporelle
-  └── Export des prédictions hebdomadaires
+  ├── Baseline, Prophet, XGBoost par produit
+  ├── Grid search par modèle
+  ├── Validation croisée temporelle (split adaptatif)
+  └── Export des prédictions (Predictions.csv + model_win_metric.csv)
 
-Phase 2 — Dashboard Interactif        [Planifié]
-  ├── Visualisation des quantités prédites
-  ├── Comparaison saison N vs N-1
-  ├── Alertes de stock
-  └── Interface accessible au maraîcher
+Phase 2 — Dashboard Interactif        [✅ Terminé]
+  ├── Visualisation des historiques + prévisions (Plotly)
+  ├── Courbes individuelles (1-4 produits) ou cumulatives (5+)
+  ├── Simulateur de prix (impact CA en temps réel)
+  ├── Métriques par produit (MAE, MAPE, modèle gagnant)
+  └── Interface Streamlit responsive
 
-Phase 3 — Base Clients Restaurants    [Futur]
+Phase 3 — Conteneurisation            [En cours]
+  ├── Makefile (install, run, train, docker)
+  ├── Dockerfile
+  └── Déploiement chez le maraîcher
+
+Phase 4 — Base Clients Restaurants    [Futur]
   ├── Intégration des commandes BtoB
   ├── Clients réguliers → prédictions plus fiables
   ├── Modèles dédiés par client restaurant
@@ -155,12 +166,14 @@ Phase 3 — Base Clients Restaurants    [Futur]
 ## 🛠️ Stack Technique
 
 ```
-Python 3.11+
-├── pandas / numpy          — manipulation des données
-├── matplotlib / plotly     — visualisation
-├── prophet                 — modèle Time Series
-├── scikit-learn            — métriques & preprocessing
-└── dash / streamlit        — dashboard interactif (Phase 2)
+Python 3.10+
+├── pandas / numpy              — manipulation des données
+├── matplotlib / plotly         — visualisation
+├── prophet                     — modèle Time Series (Meta)
+├── xgboost                     — gradient boosting
+├── scikit-learn                — métriques & preprocessing
+├── streamlit                   — dashboard interactif
+└── jupyter                     — notebooks d'analyse
 ```
 
 ---
@@ -170,18 +183,27 @@ Python 3.11+
 ```
 .
 ├── data/
-│   └── .gitkeep            # données privées — non versionnées
+│   ├── uc_orders.csv              # Commandes (privé)
+│   ├── uc_order_products.csv      # Lignes de commandes (privé)
+│   ├── uc_products.csv            # Catalogue produits (privé)
+│   ├── Predictions.csv            # Prédictions 52 semaines (export)
+│   └── model_win_metric.csv       # Meilleur modèle + métriques par produit
+│
 ├── notebooks/
-│   ├── 01_exploration.ipynb
-│   ├── 02_preprocessing.ipynb
-│   └── 03_modeling_prophet.ipynb
-├── src/
-│   ├── preprocessing.py
-│   ├── train.py
-│   └── evaluate.py
-├── outputs/
-│   └── charts/
+│   ├── utils.py                   # Chargement & nettoyage des données
+│   ├── utils_series.py            # Time Series : split, complétion, métriques
+│   ├── model_3.py                 # Modèles unifiés : Baseline + Prophet + XGBoost
+│   ├── model_prophet.py           # Prophet standalone (legacy)
+│   ├── model_xgboost.py           # XGBoost standalone (legacy)
+│   ├── Global_process.ipynb       # Pipeline maître : train, éval, export
+│   ├── Baseline_produits.ipynb    # Évaluation Baseline (legacy)
+│   ├── Prophet.ipynb              # Évaluation Prophet (legacy)
+│   └── XGboost.ipynb              # Évaluation XGBoost (legacy)
+│
+├── app.py                         # Dashboard Streamlit
+├── Makefile                       # Commandes standardisées
 ├── requirements.txt
+├── STREAMLIT_APP.md               # Documentation du dashboard
 └── README.md
 ```
 
@@ -190,12 +212,23 @@ Python 3.11+
 ## ⚙️ Installation
 
 ```bash
-git clone https://github.com/<votre-repo>/maraicher-prediction.git
-cd maraicher-prediction
-pip install -r requirements.txt
+git clone https://github.com/Florian-Q/maraicherbio-prediction.git
+cd maraicherbio-prediction
+make install
 ```
 
-> Les données ne sont pas incluses dans ce dépôt. Placez vos fichiers dans le dossier `data/` avant d'exécuter les notebooks.
+> Les données ne sont pas incluses dans ce dépôt. Placez les fichiers CSV dans le dossier `data/` avant d'exécuter les notebooks.
+
+### Commandes Makefile
+
+```bash
+make install        # Installe les dépendances Python
+make run            # Lance le dashboard Streamlit (port 8501)
+make train          # Exécute le pipeline d'entraînement (Global_process.ipynb)
+make docker-build   # Construit l'image Docker
+make docker-run     # Lance le conteneur Docker
+make clean          # Nettoie les fichiers temporaires
+```
 
 ---
 
