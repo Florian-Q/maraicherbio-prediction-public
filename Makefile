@@ -1,11 +1,9 @@
 .PHONY: help install run train docker-build docker-run clean
 
 # ── Variables ──────────────────────────────────────────────────────────────────
-PYTHON      := python3
+PYTHON      := python
 PIP         := pip
 STREAMLIT   := streamlit
-JUPYTER     := jupyter
-NOTEBOOK    := notebooks/Global_process.ipynb
 APP         := app.py
 PORT        := 8501
 IMAGE       := maraicherbio
@@ -27,9 +25,7 @@ run:  ## Lance le dashboard Streamlit
 
 # ── Entraînement ───────────────────────────────────────────────────────────────
 train:  ## Exécute le pipeline d'entraînement et exporte les prédictions
-	$(JUPYTER) nbconvert --to notebook --execute --inplace $(NOTEBOOK) \
-		--ExecutePreprocessor.timeout=600 \
-		--output-dir=./data
+	$(PYTHON) main/global_process.py
 
 # ── Docker ─────────────────────────────────────────────────────────────────────
 docker-build:  ## Construit l'image Docker
