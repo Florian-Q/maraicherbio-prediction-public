@@ -118,8 +118,13 @@ for modele in dict_train.keys():
     for (sps,) in ALL_COMBOS:
         try:
             metrics = model_3.run_prophet(sps, y_train, y_test)
-            if metrics["MAPE"] < best_metric:
-                best_metric   = metrics["MAPE"]
+            # METRIC : (MAE_all/MAE_baseline + MAPE/MAPE_baseline)
+            # Ratio < 2.0 = meilleur que la baseline sur les deux axes
+            base_row = df_base[df_base['produit'] == modele].iloc[0]
+            score = (metrics["MAE_all"] / base_row["MAE_all"] +
+                     metrics["MAPE"]   / base_row["MAPE"])
+            if score < best_metric:
+                best_metric   = score
                 best_metrics = metrics
                 best_sps     = sps
         except Exception as e:
@@ -186,10 +191,12 @@ for modele in dict_train.keys():
     for n_est, depth, lr in ALL_COMBOS:
         try:
             metrics = model_3.run_xgboost(n_est, depth, lr, y_train, y_test)
-            # METRIC : pour le choix des hyper paramètres de XG Boost
-            metric_2 =  (metrics["MAE_all"] + (metrics["MAPE"] * 10)) / 2
-            if metric_2 < best_metric:
-                best_metric  = metric_2
+            # METRIC : (MAE_all/MAE_baseline + MAPE/MAPE_baseline)
+            base_row = df_base[df_base['produit'] == modele].iloc[0]
+            score = (metrics["MAE_all"] / base_row["MAE_all"] +
+                     metrics["MAPE"]   / base_row["MAPE"])
+            if score < best_metric:
+                best_metric  = score
                 best_metrics = metrics
                 best_nest    = n_est
                 best_dep     = depth
@@ -216,6 +223,78 @@ for modele in dict_train.keys():
 
 df_xgb = pd.DataFrame(results).sort_values('MAPE')
 
+# ============================================================
+# LIGHTGBM — leaf-wise boosting, mêmes features que XGBoost
+# ============================================================
+
+# ── Hyperparamètres fixes ─────────────────────────────────────────────────────
+_LGB_FIXED: dict = {
+    "verbosity"        : -1,
+    "random_state"     : 42,
+    "min_child_samples": 20,
+}
+
+# ── Grid Search ───────────────────────────────────────────────────────────────
+TUNING_GRID_LGB: dict = {
+    "num_leaves"   : [31, 63],
+    "n_estimators" : [100, 300],
+    "learning_rate": [0.05, 0.1],
+}
+
+ALL_COMBOS_LGB = list(itertools.product(
+    TUNING_GRID_LGB["num_leaves"],
+    TUNING_GRID_LGB["n_estimators"],
+    TUNING_GRID_LGB["learning_rate"],
+))
+# 2 × 2 × 2 = 8 combinaisons par produit
+
+results = []
+
+for modele in dict_train.keys():
+    y_train = dict_train[modele]['quantite_y']
+    y_test  = dict_test[modele]['quantite_y']
+
+    best_metric  = np.inf
+    best_metrics = None
+    best_leaves  = None
+    best_nest    = None
+    best_lr      = None
+
+    for n_leaves, n_est, lr in ALL_COMBOS_LGB:
+        try:
+            metrics = model_3.run_lightgbm(n_leaves, n_est, lr, y_train, y_test)
+            # METRIC : (MAE_all/MAE_baseline + MAPE/MAPE_baseline)
+            base_row = df_base[df_base['produit'] == modele].iloc[0]
+            score = (metrics["MAE_all"] / base_row["MAE_all"] +
+                     metrics["MAPE"]   / base_row["MAPE"])
+            if score < best_metric:
+                best_metric  = score
+                best_metrics = metrics
+                best_leaves  = n_leaves
+                best_nest    = n_est
+                best_lr      = lr
+        except Exception as e:
+            print(f"[WARN] {modele} | leaves={n_leaves} n_est={n_est} lr={lr} → {e}")
+            continue
+
+    if best_metric is None:
+        continue
+
+    results.append({
+        'produit'    : modele,
+        'lgb_leaves' : best_leaves,
+        'lgb_nest'   : best_nest,
+        'lgb_lr'     : best_lr,
+        'pct_zeros'  : round(best_metrics['pct_zeros'], 1),
+        'MAE_in'     : round(best_metrics['MAE_in'],    2),
+        'MAE_out'    : round(best_metrics['MAE_out'],   2),
+        'MAE_all'    : round(best_metrics['MAE_all'],   2),
+        'MAPE'       : round(best_metrics['MAPE'],      1),
+        'sMAPE_all'  : round(best_metrics['sMAPE_all'], 1),
+    })
+
+df_lgb = pd.DataFrame(results).sort_values('MAPE')
+
 
 # Créer un DataFrame pour le résumé avec le modèle gagnant et ses métriques
 resume = df_base[['produit','train_debut','test_fin','pct_zeros']].copy()
@@ -236,24 +315,35 @@ for idx, produit in enumerate(resume['produit']):
     y_test = dict_test[produit]['quantite_y']
     y_total = pd.concat([y_train, y_test])  # Données complètes pour la prédiction en prod
     
-    # METRIC : pour le choix du model à prendre 
-    mape_base = (df_base[df_base['produit'] == produit]['MAE_all'].iloc[0] + (df_base[df_base['produit'] == produit]['MAPE'].iloc[0]) * 10)  / 2
-    mape_prophet = (df_prophet[df_prophet['produit'] == produit]['MAE_all'].iloc[0] + (df_prophet[df_prophet['produit'] == produit]['MAPE'].iloc[0] *10)) / 2
-    mape_xgb = (df_xgb[df_xgb['produit'] == produit]['MAE_all'].iloc[0] + (df_xgb[df_xgb['produit'] == produit]['MAPE'].iloc[0] * 10)) / 2
-    
-    # Déterminer le gagnant (MAPE la plus petite)
+    # METRIC : (MAE_all/MAE_baseline + MAPE/MAPE_baseline)
+    # Score < 2.0 = meilleur que la baseline. Combine l'erreur globale
+    # (MAE_all, qui capture les faux positifs hors saison) et l'erreur
+    # relative en saison (MAPE), normalisées par la référence Baseline.
+    base_row = df_base[df_base['produit'] == produit].iloc[0]
+
+    def _score(row):
+        return (row['MAE_all'] / base_row['MAE_all'] +
+                row['MAPE']   / base_row['MAPE'])
+
+    mape_base    = _score(df_base[df_base['produit'] == produit].iloc[0])
+    mape_prophet = _score(df_prophet[df_prophet['produit'] == produit].iloc[0])
+    mape_xgb     = _score(df_xgb[df_xgb['produit'] == produit].iloc[0])
+    mape_lgb     = _score(df_lgb[df_lgb['produit'] == produit].iloc[0])
+
+    # Déterminer le gagnant (score composite le plus bas)
     mapes_dict = {
-        'Baseline': (mape_base, df_base),
-        'Prophet': (mape_prophet, df_prophet),
-        'XGBoost': (mape_xgb, df_xgb)
+        'Baseline': (mape_base,    df_base),
+        'Prophet':  (mape_prophet, df_prophet),
+        'XGBoost':  (mape_xgb,     df_xgb),
+        'LightGBM': (mape_lgb,     df_lgb),
     }
-    
+
     model_win = min(mapes_dict, key=lambda x: mapes_dict[x][0])
     _, df_win = mapes_dict[model_win]
-    
+
     # Récupérer les métriques du gagnant
     row_win = df_win[df_win['produit'] == produit].iloc[0]
-    
+
     # Remplir resume avec les métriques du gagnant
     resume.loc[idx, 'model_win'] = model_win
     resume.loc[idx, 'MAE_in'] = row_win['MAE_in']
@@ -261,7 +351,7 @@ for idx, produit in enumerate(resume['produit']):
     resume.loc[idx, 'MAE_all'] = row_win['MAE_all']
     resume.loc[idx, 'MAPE'] = row_win['MAPE']
     resume.loc[idx, 'sMAPE_all'] = row_win['sMAPE_all']
-    
+
     # Appeler la fonction correspondante et sauvegarder la prédiction
     try:
         print(f"  → Prédiction avec {model_win}...")
@@ -275,6 +365,11 @@ for idx, produit in enumerate(resume['produit']):
             depth = int(row_win['xgb_depth'])
             lr = row_win['xgb_lr']
             y_pred = model_3.run_xgboost(n_est, depth, lr, y_total)
+        elif model_win == 'LightGBM':
+            n_leaves = int(row_win['lgb_leaves'])
+            n_est    = int(row_win['lgb_nest'])
+            lr       = row_win['lgb_lr']
+            y_pred = model_3.run_lightgbm(n_leaves, n_est, lr, y_total)
         
         predictions[produit] = y_pred
         print(f"  ✓ {produit} OK")
