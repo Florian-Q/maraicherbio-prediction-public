@@ -186,8 +186,10 @@ for modele in dict_train.keys():
     for n_est, depth, lr in ALL_COMBOS:
         try:
             metrics = model_3.run_xgboost(n_est, depth, lr, y_train, y_test)
-            if metrics["MAPE"] < best_metric:
-                best_metric  = metrics["MAPE"]
+            # METRIC : pour le choix des hyper paramètres de XG Boost
+            metric_2 =  (metrics["MAE_all"] + (metrics["MAPE"] * 10)) / 2
+            if metric_2 < best_metric:
+                best_metric  = metric_2
                 best_metrics = metrics
                 best_nest    = n_est
                 best_dep     = depth
@@ -234,10 +236,10 @@ for idx, produit in enumerate(resume['produit']):
     y_test = dict_test[produit]['quantite_y']
     y_total = pd.concat([y_train, y_test])  # Données complètes pour la prédiction en prod
     
-    # Récupérer la MAPE pour chaque modèle
-    mape_base = (df_base[df_base['produit'] == produit]['MAE_in'].iloc[0] + df_base[df_base['produit'] == produit]['MAPE'].iloc[0]) / 2
-    mape_prophet = (df_prophet[df_prophet['produit'] == produit]['MAE_in'].iloc[0] + df_prophet[df_prophet['produit'] == produit]['MAPE'].iloc[0]) / 2
-    mape_xgb = (df_xgb[df_xgb['produit'] == produit]['MAE_in'].iloc[0] + df_xgb[df_xgb['produit'] == produit]['MAPE'].iloc[0]) / 2
+    # METRIC : pour le choix du model à prendre 
+    mape_base = (df_base[df_base['produit'] == produit]['MAE_all'].iloc[0] + (df_base[df_base['produit'] == produit]['MAPE'].iloc[0]) * 10)  / 2
+    mape_prophet = (df_prophet[df_prophet['produit'] == produit]['MAE_all'].iloc[0] + (df_prophet[df_prophet['produit'] == produit]['MAPE'].iloc[0] *10)) / 2
+    mape_xgb = (df_xgb[df_xgb['produit'] == produit]['MAE_all'].iloc[0] + (df_xgb[df_xgb['produit'] == produit]['MAPE'].iloc[0] * 10)) / 2
     
     # Déterminer le gagnant (MAPE la plus petite)
     mapes_dict = {
