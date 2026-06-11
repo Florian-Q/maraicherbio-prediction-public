@@ -201,6 +201,9 @@ def _build_features_xg(series: pd.Series) -> pd.DataFrame:
     # rolling mean annuel (min_periods=26 : accepte dès 6 mois de données)
     df["rolling_52"] = df["y"].shift(1).rolling(window=52, min_periods=26).mean()
 
+    # rolling mean court terme (4 semaines ≈ 1 mois)
+    df["rolling_4"] = df["y"].shift(1).rolling(window=4, min_periods=2).mean()
+
     # moyenne historique par semaine ISO — ancre déterministe anti-dérive
     # En prédiction, cette feature reste stable (calculée sur l'historique réel,
     # pas sur les valeurs prédites), ce qui empêche le modèle d'accumuler
@@ -209,16 +212,7 @@ def _build_features_xg(series: pd.Series) -> pd.DataFrame:
 
     return df
 
-FEATURES = ["week", "week_sin", "week_cos", "lag_1", "lag_52", "rolling_52", "week_mean"]
-
-
-def _make_future_index(last_date: pd.Timestamp, n_weeks: int = 52) -> pd.DatetimeIndex:
-    """Génère n_weeks dates hebdomadaires après last_date."""
-    return pd.date_range(
-        start=last_date + pd.Timedelta(weeks=1),
-        periods=n_weeks,
-        freq="W"
-    )
+FEATURES = ["week", "week_sin", "week_cos", "lag_1", "lag_52", "rolling_52", "rolling_4", "week_mean"]
 
 
 # ── Fonction principale ───────────────────────────────────────────────────────
@@ -301,6 +295,98 @@ def run_xgboost(
         preds.append({"ds": date, "yhat": yhat})
 
         # Append la prédiction à l'historique pour les lags suivants
+        history = pd.concat([history, pd.Series([yhat], index=[date])])
+
+    return pd.DataFrame(preds).set_index("ds")
+
+
+# ============================================================
+# LIGHTGBM — fonction universelle train/predict
+# ============================================================
+from lightgbm import LGBMRegressor
+
+
+# ── Hyperparamètres fixes ─────────────────────────────────────────────────────
+_LGB_FIXED: dict = {
+    "verbosity"        : -1,
+    "random_state"     : 42,
+    "min_child_samples": 20,    # régularisation, adapté aux données zero-inflated
+}
+
+
+# ── Fonction principale ───────────────────────────────────────────────────────
+
+def run_lightgbm(
+    num_leaves   : int,
+    n_estimators : int,
+    learning_rate: float,
+    data_train   : pd.DataFrame | pd.Series,
+    data_test    : pd.DataFrame | pd.Series | None = None,
+) -> pd.DataFrame | dict:
+    """
+    Deux modes selon les arguments fournis :
+
+    MODE PRÉDICTION (data_test=None)
+    ─────────────────────────────────
+    - Entraîne sur l'ensemble de data_train
+    - Retourne un DataFrame de prédictions sur 52 semaines
+      Colonnes : ['yhat'] + index datetime
+
+    MODE ÉVALUATION (data_test fourni)
+    ────────────────────────────────────
+    - Entraîne sur data_train, prédit sur data_test
+    - Retourne les métriques seasonal_metrics (dict)
+
+    Paramètres
+    ----------
+    num_leaves    : nombre max de feuilles par arbre (équiv. max_depth pour LGBM)
+    n_estimators  : nombre d'arbres (boosting rounds)
+    learning_rate : taux d'apprentissage
+    data_train    : Series ou DataFrame (col 'quantite_y' + index datetime)
+    data_test     : idem, optionnel
+    """
+
+    y_train = _extract_series(data_train)
+
+    model = LGBMRegressor(
+        num_leaves     = num_leaves,
+        n_estimators   = n_estimators,
+        learning_rate  = learning_rate,
+        **_LGB_FIXED,
+    )
+
+    # ── Entraînement ─────────────────────────────────────────────────────────
+    df_train = _build_features_xg(y_train).dropna()
+    X_train  = df_train[FEATURES].values
+    y_arr    = df_train["y"].values
+    model.fit(X_train, y_arr)
+
+    # ── MODE ÉVALUATION ──────────────────────────────────────────────────────
+    if data_test is not None:
+        y_test  = _extract_series(data_test)
+        full    = pd.concat([y_train, y_test])
+        df_full = _build_features_xg(full)
+        df_t    = df_full.loc[y_test.index].fillna(0)
+        X_test  = df_t[FEATURES].values
+        y_pred  = np.clip(model.predict(X_test), 0, None)
+        metrics = utils_series.seasonal_metrics(y_test, y_pred)
+        return metrics
+
+    # ── MODE PRÉDICTION ──────────────────────────────────────────────────────
+    # Même boucle autorégressive que XGBoost : chaque prédiction alimente
+    # les lags de la semaine suivante.
+    future_idx = _make_future_index(y_train.index.max(), n_weeks=52)
+    history    = y_train.copy()
+
+    preds = []
+    for date in future_idx:
+        tmp_series = pd.concat([history, pd.Series([np.nan], index=[date])])
+        df_tmp     = _build_features_xg(tmp_series)
+        row        = df_tmp.loc[date, FEATURES].fillna(0).values.reshape(1, -1)
+
+        yhat = float(np.clip(model.predict(row), 0, None))
+        preds.append({"ds": date, "yhat": yhat})
+
         history = pd.concat([history, pd.Series([yhat], index=[date])])
 
     return pd.DataFrame(preds).set_index("ds")
