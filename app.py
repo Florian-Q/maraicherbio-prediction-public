@@ -15,9 +15,11 @@ if str(NOTEBOOKS_DIR) not in sys.path:
 
 import pandas as pd
 import numpy as np
+import requests
 import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
+from io import StringIO
 from typing import Optional
 
 # ============================================================
@@ -35,21 +37,48 @@ st.set_page_config(
 # 2. CHARGEMENT DES DONNÉES
 # ============================================================
 
+# --- Accès au dépôt GitHub privé contenant les CSV ---
+# Secrets attendus (Settings → Secrets sur Streamlit Cloud) :
+#   api_token   = "ghp_xxxxxxxxxxxx"   (Personal Access Token, lecture seule)
+#   repo_owner  = "ton-user-ou-org"
+#   repo_name   = "nom-du-depot-prive"
+#   repo_branch = "main"               (optionnel, "main" par défaut)
+
+@st.cache_data(show_spinner=False)
+def _fetch_csv_from_private_repo(path_in_repo: str, **read_csv_kwargs) -> pd.DataFrame:
+    """
+    Télécharge un CSV depuis le dépôt GitHub privé via l'API Contents,
+    et le charge dans un DataFrame. Mis en cache : téléchargé une seule fois.
+    """
+    owner = st.secrets["repo_owner"]
+    repo = st.secrets["repo_name"]
+    branch = st.secrets.get("repo_branch", "main")
+    token = st.secrets["api_token"]
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path_in_repo}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.raw+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    response = requests.get(url, headers=headers, params={"ref": branch}, timeout=15)
+    response.raise_for_status()
+    return pd.read_csv(StringIO(response.text), **read_csv_kwargs)
+
+
 _DATA_REAL_AVAILABLE = False
 try:
     import main.utils as utils
     import main.utils_series as utils_series
-    if (NOTEBOOKS_DIR.parent / "data" / "uc_order_products.csv").exists():
-        _DATA_REAL_AVAILABLE = True
+    _DATA_REAL_AVAILABLE = True
 except Exception:
     pass
 
 
 def _load_real_prices() -> dict:
-    """Charge les sell_price depuis uc_products.csv → mapping model -> prix."""
+    """Charge les sell_price depuis uc_products.csv (dépôt privé) → mapping model -> prix."""
     try:
-        data_path = Path(__file__).parent / "data"
-        products = pd.read_csv(data_path / "uc_products.csv", decimal=",")
+        products = _fetch_csv_from_private_repo("data/uc_products.csv", decimal=",")
         products["sell_price"] = pd.to_numeric(products["sell_price"], errors="coerce")
         return products.dropna(subset=["sell_price"]).groupby("model")["sell_price"].last().to_dict()
     except Exception:
@@ -57,33 +86,34 @@ def _load_real_prices() -> dict:
 
 
 def _load_model_metrics() -> pd.DataFrame:
-    """Charge le CSV model_win_metric.csv (meilleur modèle + métriques par produit)."""
-    path = Path(__file__).parent / "data" / "model_win_metric.csv"
-    if path.exists():
-        df = pd.read_csv(path)
+    """Charge le CSV model_win_metric.csv (meilleur modèle + métriques par produit), dépôt privé."""
+    try:
+        df = _fetch_csv_from_private_repo("data/model_win_metric.csv")
         # Renommer pour compatibilité
         if "model_win" in df.columns:
             df["best_model"] = df["model_win"]
         return df
+    except Exception:
+        pass
     # Fallback sur l'ancien CSV
-    old = Path(__file__).parent / "data" / "Baseline_metrics.csv"
-    if old.exists():
-        df = pd.read_csv(old)
+    try:
+        df = _fetch_csv_from_private_repo("data/Baseline_metrics.csv")
         df["best_model"] = "Baseline"
         return df
-    return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 
 def _load_predictions() -> Optional[pd.DataFrame]:
     """
-    Charge le CSV de prédictions.
+    Charge le CSV de prédictions (dépôt privé).
     Format attendu : colonne 'ds' (dates) + 1 colonne par produit (valeurs = prédictions).
     Retourne un DataFrame long : produit, date, prediction.
     """
-    path = Path(__file__).parent / "data" / "Predictions.csv"
-    if not path.exists():
+    try:
+        df = _fetch_csv_from_private_repo("data/Predictions.csv")
+    except Exception:
         return None
-    df = pd.read_csv(path)
     date_col = df.columns[0]
     df[date_col] = pd.to_datetime(df[date_col])
     # Wide → long
