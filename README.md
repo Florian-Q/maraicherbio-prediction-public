@@ -1,243 +1,152 @@
-# 🥦 Prédiction des Ventes — Maraîcher Bio Lorient
+# 🥦 BioPredict — Prédiction des ventes d'un maraîcher bio (Bretagne)
 
-> Projet Data Science — Séries Temporelles · Modèles Prédictifs · Dashboard
+![Statut](https://img.shields.io/badge/Statut-Projet%20termin%C3%A9-brightgreen) ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white) [![Démo](https://img.shields.io/badge/D%C3%A9mo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://maraicherbio-prediction.streamlit.app/)
+
+> Projet de Data Science — Séries temporelles · Modélisation prédictive · Dashboard interactif
+> Réalisé en équipe de 3 en deux semaines, en partenariat avec un maraîcher bio réel.
+
+**🔗 Démo en ligne : [maraicherbio-prediction.streamlit.app](https://maraicherbio-prediction.streamlit.app/)** — aucune installation nécessaire, les données affichées ont été adaptées pour la consultation publique (voir [Données & confidentialité](#-données--confidentialité)).
+
+---
+
+## En bref
+
+- **Problème métier** : un maraîcher bio ne sait pas à l'avance combien de légumes il vendra chaque semaine, ce qui complique la planification des récoltes et génère du gaspillage.
+- **Données** : 12 ans de ventes réelles (2014–2026), 142 600 lignes de vente, 21 900 commandes → 84 produits retenus après nettoyage.
+- **Approche** : un modèle de prédiction dédié par produit (Baseline, Prophet, XGBoost), sélectionné automatiquement selon sa précision.
+- **Résultat** : ~30 % de MAPE en moyenne, jusqu'à 25 % sur les produits à historique stable.
+- **Livrable** : un dashboard Streamlit interactif, déployé publiquement, avec simulateur de prix en temps réel.
 
 ---
 
 ## 📌 Contexte
 
-Ce projet est réalisé en partenariat avec un **maraîcher bio basé à Lorient (Bretagne)** qui a accordé un accès à sa base de données de ventes en ligne. L'objectif est de prédire les quantités de légumes et fruits vendus chaque semaine, afin d'aider le maraîcher à **anticiper sa production, réduire le gaspillage et optimiser ses stocks**.
+Ce projet a été réalisé en partenariat avec un **maraîcher bio basé en Bretagne**, qui nous a donné accès à l'historique de ventes de sa boutique en ligne. Sans visibilité sur ses ventes futures, il devait récolter "à l'aveugle" — au risque de jeter des dizaines de kilos de légumes invendus ou d'en manquer en pleine saison.
 
-Choisir ce projet, c'est aussi choisir de **soutenir une agriculture locale et biologique**.
+L'objectif : exploiter 12 ans d'historique pour **prédire les quantités vendues, produit par produit et semaine par semaine**, afin de l'aider à anticiper sa production, réduire le gaspillage et optimiser ses stocks.
 
----
-
-## 🎯 Objectif
-
-1. Analyser l'historique des commandes depuis 2014 afin d'identifier les produits les plus rentables, la saisonnalité des ventes et élaborer un modèle prédictif pour optimiser les stocks.
-2. Construire un ou plusieurs modèles de **séries temporelles supervisés** capables de prédire les quantités hebdomadaires vendues pour chaque produit.
-
-| Paramètre | Valeur |
-|---|---|
-| **Type of Challenge** | Model Training — Supervisé |
-| **Variable X** | Quantités de légumes/fruits vendues par semaine |
-| **Variable Y** | Prédiction des quantités futures |
-| **Type de valeur** | Values (continue) |
-| **ML Approach** | Time Series — Baseline · Prophet (Meta) · XGBoost |
-| **Exploration & Viz** | Matplotlib · Plotly · Dashboard Streamlit |
+Au-delà de l'exercice technique, c'est une collaboration réelle avec un producteur bio breton : les prédictions livrées ont un usage concret pour sa gestion de production.
 
 ---
 
 ## 🗃️ Données
 
-> ⚠️ Les données sont privées et ne sont pas versionnées dans ce dépôt.
+Le projet s'appuie sur l'export de la boutique en ligne du maraîcher.
 
-BaseDeDonnes
-![Base De Donnes](BaseDeDonnees.PNG)
+**Volumes :** ~142 600 lignes de vente · ~21 900 commandes · historique 2014 → 2026.
 
-La base de données contient deux tables principales :
+**Nettoyage effectué :**
+- **Filtrage** — conservation des produits avec au moins 3 ans d'historique continu et plus de 10 ventes (300 → 84 produits retenus)
+- **Conversion des unités** — grammes → kilogrammes, harmonisation des unités hétérogènes ("botte", "pièce")
+- **Agrégation hebdomadaire** — les ventes, enregistrées commande par commande, sont regroupées par semaine : c'est l'échelle à laquelle le maraîcher planifie ses récoltes, et donc celle à laquelle la prédiction est utile
+- **Gestion des semaines sans vente** et des valeurs aberrantes
 
-### `produit_vendu`
-Lignes de ventes détaillées par commande et par produit.
+> ⚠️ Les fichiers de données bruts (CSV) ne sont jamais commités dans ce dépôt (voir `.gitignore`). Les données originales appartiennent au maraîcher partenaire et restent confidentielles — voir [Données & confidentialité](#-données--confidentialité).
 
-| Colonne | Description |
-|---|---|
-| `order_product_id` | Identifiant unique de la ligne de vente |
-| `order_id` | Référence de la commande |
-| `nid` | Identifiant du produit |
-| `title` | Nom du produit |
-| `qty` | Quantité vendue |
-| `price` | Prix unitaire (€) |
-| `weight` | Poids unitaire (g) |
+### 📊 Quelques insights
 
-nid (Node ID) : L'identifiant unique du "contenu". C'est votre clé primaire pour un produit. Si vous avez 500 produits, chaque produit a un nid différent. Utilisez ceci pour toutes vos jointures.
-
-vid (Version ID) : L'identifiant de la version. Chaque fois qu'une ligne est modifiée, un nouveau vid peut être créé. Pour l'analyse de données, on ignore généralement le vid pour se concentrer sur l'état actuel du produit via le nid.
-
-### `orders`
-Historique des commandes clients.
-
-| Colonne | Description |
-|---|---|
-| `order_id` | Identifiant unique de la commande |
-| `uid` | Identifiant client |
-| `order_status` | Statut (`completed`, `processing`, …) |
-| `order_total` | Montant total de la commande (€) |
-| `product_count` | Nombre de produits dans la commande |
-| `created` | Date de création |
-| `modified` | Date de dernière modification |
-
-uid (User ID) : L'identifiant de l'utilisateur. Il relie vos commandes à des profils clients.
-
-**Volume de données :**
-- ~142 600 lignes de ventes produit
-- ~21 900 commandes
-- Historique de **plus de 10 ans** (2014 – 2026)
-- **84 produits** retenus après nettoyage (présents sur les 3 dernières années avec continuité + >10 ventes)
-
-Le projet repose sur 3 fichiers sources :
-- **Orders (`uc_orders.csv`)** : Liste des transactions globales.
-- **Order Products (`uc_order_products.csv`)** : Table de détail (contient les articles par commande).
-- **Products (`uc_products.csv`)** : Catalogue technique (prix, poids, unités).
-
-*Le lien pivot entre les tables est le champ `nid`.*
+- 🥇 La **courgette** est le produit n°1, avec 1 039 unités vendues en 2025 — soit +46 % par rapport au second produit
+- 🍅 Top 5 annuel : courgette · tomate rouge ronde · poireau · aubergine noire · pomme de terre allians
+- ☀️ Forte **saisonnalité estivale** : courgette, tomate et aubergine explosent de mai à septembre
+- ❄️ **Poireau et pomme de terre** portent les ventes hivernales (octobre → avril)
+- 🥔 Certains produits (ex. jeunes pousses, variétés très ponctuelles) ont un historique trop irrégulier pour être prédits de façon fiable, même par les meilleurs modèles — une limite assumée plutôt que masquée
 
 ---
 
-## 📊 Quelques Insights Clés
+## 🔬 Approche technique
 
-- 🥇 La **Courgette** est le produit n°1 avec 1 039 unités vendues en 2025, soit +46% par rapport au second produit
-- 🍅 Top 5 annuel : Courgette · Tomate rouge ronde · Poireau · Aubergine noire · Pomme de terre allians
-- ☀️ Forte **saisonnalité estivale** : Courgette, Tomate et Aubergine explosent de mai à septembre
-- ❄️ **Poireau et Pomme de terre** assurent les ventes hivernales (octobre → avril)
+### Un modèle par produit
 
----
+Chaque légume a son propre cycle de vente (saisonnalité, durée de vie commerciale, régularité). Plutôt qu'un modèle global, **un modèle dédié est entraîné pour chacun des 84 produits**, ce qui maximise la précision par rapport à une approche unique.
 
-## 🔬 Approche Technique
+Il s'agit formellement d'un problème de régression supervisée sur séries temporelles : à partir de l'historique hebdomadaire d'un produit (X), prédire les quantités vendues sur les 52 semaines suivantes (Y).
 
-### 1. Exploration & Nettoyage
-
-- Analyse des séries temporelles par produit
-- Détection des anomalies et valeurs aberrantes
-- Gestion des valeurs manquantes et des semaines sans ventes
-- 84 produits conservés après filtrage (présence sur 3 ans glissants, >10 ventes)
-- Correction des poids mal annotés (grammes → kilogrammes)
-- Uniformisation des noms de produits
-
-### 2. Un Modèle par Légume/Fruit
-
-Chaque produit ayant ses propres cycles saisonniers, un **modèle dédié** est entraîné par produit pour garantir une précision maximale par rapport à un modèle global.
-
-### 3. Trois Modèles en Compétition
+### Trois modèles en compétition
 
 | Modèle | Type | Caractéristiques |
 |---|---|---|
-| **Baseline** | Moyenne hebdomadaire | Moyenne + écart-type par semaine ISO (référence) |
-| **Prophet** (Meta) | Time Series bayésien | Saisonnalité annuelle + hebdo, robuste aux zéros |
-| **XGBoost** | Gradient boosting | Features : semaine ISO + lags + rolling mean (52 sem.) |
+| **Baseline** | Moyenne hebdomadaire | Moyenne + écart-type par semaine ISO — sert de référence |
+| **Prophet** (Meta) | Séries temporelles bayésien | Saisonnalité annuelle + hebdomadaire, robuste aux zéros et au bruit |
+| **XGBoost** | Gradient boosting | Features : semaine ISO, lags, moyenne glissante (52 sem.) |
 
-- **XGBoost** gagne sur **52 produits** sur 84 (62%)
-- **Prophet** gagne sur **22 produits** (26%)
-- **Baseline** gagne sur **10 produits** (12%)
+Pour chaque produit, le meilleur modèle est sélectionné automatiquement par **MAPE minimale** (calculée uniquement sur les semaines en saison). Aucun modèle ne domine sur tous les produits — ce qui confirme la pertinence de l'approche "un modèle par produit" : la simplicité de la Baseline suffit pour certains, tandis que XGBoost ou Prophet font la différence sur d'autres.
 
-Le meilleur modèle est sélectionné par **MAPE minimale** (calculée uniquement sur les semaines en saison, y_true > 0).
+### Validation
 
-### 4. Évaluation
-
-- **MAE_in** — Mean Absolute Error (en saison, y > 0)
-- **MAE_out** — Mean Absolute Error (hors saison, y = 0)
-- **MAPE** — Mean Absolute Percentage Error (en saison uniquement)
-- **sMAPE_all** — Symmetric MAPE (toutes les semaines, incluant les zéros)
-- **Cross-validation temporelle** — split adaptatif : 20% de test arrondi à l'année la plus proche (1 à 3 ans)
+- **Cross-validation temporelle adaptative** : la période de test (~20 %) s'ajuste à l'ancienneté de chaque produit (1 à 3 ans), au lieu d'un split fixe
+- **Métriques** : MAE en saison / hors saison, MAPE (en saison), sMAPE sur toutes les semaines (zéros inclus)
 
 ---
 
-## 🗺️ Roadmap
+## 📈 Résultats
 
-```
-Phase 1 — Modèles Time Series        [✅ Terminé]
-  ├── Nettoyage & feature engineering
-  ├── Baseline, Prophet, XGBoost par produit
-  ├── Grid search par modèle
-  ├── Validation croisée temporelle (split adaptatif)
-  └── Export des prédictions (Predictions.csv + model_win_metric.csv)
+- **~30 % de MAPE en moyenne** sur l'ensemble des 84 produits
+- Sur les produits à historique stable, la précision descend nettement en dessous de la moyenne : de **25 % à 32 %** de MAPE pour les 5 meilleurs (ex. carotte de terre, tomate ancienne, poireau, courgette)
+- Répartition du modèle gagnant sur les 84 produits :
 
-Phase 2 — Dashboard Interactif        [✅ Terminé]
-  ├── Visualisation des historiques + prévisions (Plotly)
-  ├── Courbes individuelles (1-4 produits) ou cumulatives (5+)
-  ├── Simulateur de prix (impact CA en temps réel)
-  ├── Métriques par produit (MAE, MAPE, modèle gagnant)
-  └── Interface Streamlit responsive
-
-Phase 3 — Conteneurisation            [En cours]
-  ├── Makefile (install, run, train, docker)
-  ├── Dockerfile
-  └── Déploiement chez le maraîcher
-
-Phase 4 — Base Clients Restaurants    [Futur]
-  ├── Intégration des commandes BtoB
-  ├── Clients réguliers → prédictions plus fiables
-  ├── Modèles dédiés par client restaurant
-  └── Optimisation logistique des livraisons
-```
+  | Modèle | Produits gagnés | Part |
+  |---|---|---|
+  | **XGBoost** | 52 | 62 % |
+  | **Prophet** | 22 | 26 % |
+  | **Baseline** | 10 | 12 % |
 
 ---
 
-## 🛠️ Stack Technique
+## 🖥️ Dashboard interactif
+
+Le pipeline de prédiction est exposé via un dashboard **Streamlit** déployé publiquement : **[maraicherbio-prediction.streamlit.app](https://maraicherbio-prediction.streamlit.app/)**
+
+Ce qu'on peut y faire :
+- Visualiser l'historique et les prévisions (52 semaines, intervalle de confiance à 95 %) pour un ou plusieurs produits
+- Basculer entre vue par quantité et vue par chiffre d'affaires
+- **Simuler un changement de prix** et voir l'impact sur le CA prévisionnel en temps réel
+- Comparer le modèle gagnant et les métriques (MAE, MAPE) produit par produit
+- Rechercher, sélectionner et filtrer parmi les 84 produits
+
+---
+
+## 🛠️ Stack technique
 
 ```
 Python 3.10+
 ├── pandas / numpy              — manipulation des données
 ├── matplotlib / plotly         — visualisation
-├── prophet                     — modèle Time Series (Meta)
-├── xgboost                     — gradient boosting
+├── prophet                     — modèle de séries temporelles (Meta)
+├── xgboost / lightgbm          — gradient boosting
 ├── scikit-learn                — métriques & preprocessing
 ├── streamlit                   — dashboard interactif
-└── jupyter                     — notebooks d'analyse
+└── jupyter                     — notebooks d'exploration
 ```
 
 ---
 
-## 📁 Structure du Projet
+## ✅ Bilan du projet
 
-```
-.
-├── data/
-│   ├── uc_orders.csv              # Commandes (privé)
-│   ├── uc_order_products.csv      # Lignes de commandes (privé)
-│   ├── uc_products.csv            # Catalogue produits (privé)
-│   ├── Predictions.csv            # Prédictions 52 semaines (export)
-│   └── model_win_metric.csv       # Meilleur modèle + métriques par produit
-│
-├── notebooks/
-│   ├── utils.py                   # Chargement & nettoyage des données
-│   ├── utils_series.py            # Time Series : split, complétion, métriques
-│   ├── model_3.py                 # Modèles unifiés : Baseline + Prophet + XGBoost
-│   ├── model_prophet.py           # Prophet standalone (legacy)
-│   ├── model_xgboost.py           # XGBoost standalone (legacy)
-│   ├── Global_process.ipynb       # Pipeline maître : train, éval, export
-│   ├── Baseline_produits.ipynb    # Évaluation Baseline (legacy)
-│   ├── Prophet.ipynb              # Évaluation Prophet (legacy)
-│   └── XGboost.ipynb              # Évaluation XGBoost (legacy)
-│
-├── app.py                         # Dashboard Streamlit
-├── Makefile                       # Commandes standardisées
-├── requirements.txt
-├── STREAMLIT_APP.md               # Documentation du dashboard
-└── README.md
-```
+**Livré :**
+- Pipeline de nettoyage, feature engineering et entraînement (Baseline, Prophet, XGBoost) sur 84 produits
+- Sélection automatique du meilleur modèle par produit, validation croisée temporelle adaptative
+- Dashboard interactif déployé publiquement, avec simulateur de prix et KPIs en temps réel
+
+**Pistes d'évolution identifiées (non réalisées à ce stade) :**
+- Conteneurisation (Docker) et déploiement directement chez le maraîcher
+- Intégration de nouvelles données : clients professionnels / restaurants
+- Étude de l'impact du changement climatique sur la saisonnalité
+- Corrélation entre quantités vendues et surfaces cultivées
 
 ---
 
-## ⚙️ Installation
+## 👥 Équipe
 
-```bash
-git clone https://github.com/Florian-Q/maraicherbio-prediction.git
-cd maraicherbio-prediction
-make install
-```
+Projet réalisé en deux semaines par une équipe de 3, dans le cadre d'une formation Data Science :
 
-> Les données ne sont pas incluses dans ce dépôt. Placez les fichiers CSV dans le dossier `data/` avant d'exécuter les notebooks.
-
-### Commandes Makefile
-
-```bash
-make install        # Installe les dépendances Python
-make run            # Lance le dashboard Streamlit (port 8501)
-make train          # Exécute le pipeline d'entraînement (Global_process.ipynb)
-make docker-build   # Construit l'image Docker
-make docker-run     # Lance le conteneur Docker
-make clean          # Nettoie les fichiers temporaires
-```
+- **Florian Quintin**
+- **Habiba Jouan**
+- **Matis Rocher**
 
 ---
 
-## 🌱 Pourquoi Ce Projet ?
+## 📄 Données & confidentialité
 
-Ce projet n'est pas un exercice sur un dataset Kaggle — c'est une **collaboration réelle** avec un producteur bio breton. Les prédictions produites auront un **impact direct** sur sa gestion de production et la réduction du gaspillage alimentaire.
+Le code de ce dépôt (pipeline, modèles, dashboard) est partagé à titre de démonstration technique.
 
----
-
-## 📄 Licence
-
-Ce projet est à usage privé. Les données appartiennent au maraîcher partenaire et ne peuvent être redistribuées.
+Les données de vente originales appartiennent au maraîcher partenaire et sont strictement confidentielles : les fichiers bruts n'ont jamais été commités dans ce dépôt. Les données affichées dans la démo publique ont été adaptées afin de pouvoir être présentées sans exposer d'informations commerciales réelles.
