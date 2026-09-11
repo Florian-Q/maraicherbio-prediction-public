@@ -320,7 +320,7 @@ def plot_view(
 # ============================================================
 
 def main():
-    st.title("🥦 Dashboard MaraîcherBio")
+    st.title("🥦 Dashboard BioPredict")
     st.caption(
         "Cochez 1 à 4 produits pour des courbes individuelles, "
         "5+ pour une courbe cumulative. Modifiez les prix dans le tableau."
