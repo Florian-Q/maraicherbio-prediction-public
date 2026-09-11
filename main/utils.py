@@ -3,9 +3,37 @@ Fonctions utilitaires pour le projet de prédiction maraîchère.
 """
 
 import pandas as pd
+import requests
+import streamlit as st
 from pathlib import Path
+from io import StringIO
 from typing import Optional
 from dateutil.relativedelta import relativedelta
+
+
+@st.cache_data(show_spinner=False)
+def _fetch_csv_from_private_repo(path_in_repo: str, **read_csv_kwargs) -> pd.DataFrame:
+    """
+    Télécharge un CSV depuis le dépôt GitHub privé via l'API Contents,
+    et le charge dans un DataFrame. Mis en cache : téléchargé une seule fois.
+
+    Secrets attendus (Settings → Secrets sur Streamlit Cloud) :
+        api_token, repo_owner, repo_name, repo_branch (optionnel, "main" par défaut)
+    """
+    owner = st.secrets["repo_owner"]
+    repo = st.secrets["repo_name"]
+    branch = st.secrets.get("repo_branch", "main")
+    token = st.secrets["api_token"]
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path_in_repo}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.raw+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    response = requests.get(url, headers=headers, params={"ref": branch}, timeout=15)
+    response.raise_for_status()
+    return pd.read_csv(StringIO(response.text), **read_csv_kwargs)
 
 
 def charger_dataframe(model_filter: Optional[str] = None) -> pd.DataFrame:
@@ -29,11 +57,16 @@ def charger_dataframe(model_filter: Optional[str] = None) -> pd.DataFrame:
         - weight_units (kg, Pièce, Botte, panier)
         - quantite_y (quantité cible = weight x qty)
     """
-    # --- Chargement des CSV ---
-    data_path = Path(__file__).parent.parent / "data"
-    order_products = pd.read_csv(data_path / "uc_order_products.csv", decimal=",", na_filter=False)
-    orders = pd.read_csv(data_path / "uc_orders.csv", decimal=",", na_filter=False)
-    uc_products = pd.read_csv(data_path / "uc_products.csv", decimal=",", na_filter=False)
+    # --- Chargement des CSV depuis le dépôt privé ---
+    order_products = _fetch_csv_from_private_repo(
+        "data/uc_order_products.csv", decimal=",", na_filter=False
+    )
+    orders = _fetch_csv_from_private_repo(
+        "data/uc_orders.csv", decimal=",", na_filter=False
+    )
+    uc_products = _fetch_csv_from_private_repo(
+        "data/uc_products.csv", decimal=",", na_filter=False
+    )
 
     # --- Conversions numériques ---
     order_products = order_products.copy()
