@@ -27,7 +27,7 @@ from typing import Optional
 # ============================================================
 
 st.set_page_config(
-    page_title="Dashboard MaraîcherBio",
+    page_title="Dashboard BioPredict",
     page_icon="🥦",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -577,7 +577,12 @@ def main():
                         st.metric("💰 CA prévisionnel", f"{ca_default:,.0f} €")
                 with k3:
                     st.metric("🧺 Produits", f"{n}")
-
+    # --- Pied de page ---
+    st.markdown("---")
+    st.markdown(
+        "📖 [Voir le code source et la documentation sur GitHub]"
+        "(https://github.com/Florian-Q/maraicherbio-prediction-public)"
+    )
 
 if __name__ == "__main__":
     main()
